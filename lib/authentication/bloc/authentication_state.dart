@@ -14,9 +14,9 @@ class AuthenticationInitial extends AuthenticationState {
   AuthenticationInitial(this.status, this.phone) : super();
 }
 
-class StatusState extends AuthenticationState {
+class AuthenticationStatusState extends AuthenticationState {
   final AuthenticationStatus status;
-  StatusState(this.status);
+  AuthenticationStatusState(this.status);
 }
 
 class PhoneState extends AuthenticationState {

@@ -2,6 +2,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:simple_feed/authentication/bloc/authentication_bloc.dart';
+import 'package:simple_feed/home/bloc/home_bloc.dart';
+import 'package:simple_feed/sign_in/bloc/sign_in_bloc.dart';
 /////////////////////////////////////////////////////////////
 import './splash/splash.dart';
 import './sign_in/sign_in.dart';
@@ -16,8 +18,18 @@ void main() async {
 class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => AuthenticationBloc(),
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(
+          create: (context) => AuthenticationBloc(),
+        ),
+        BlocProvider(
+          create: (context) => HomeBloc(),
+        ),
+        BlocProvider(
+          create: (context) => SignInBloc(),
+        ),
+      ],
       child: MyApp(),
     );
   }
@@ -42,29 +54,40 @@ class MyApp extends StatelessWidget {
         Home.routeName: (context) => Home(),
         SignIn.routeName: (context) => SignIn(),
         SignInVerification.routeName: (context) => SignInVerification(),
+        PostPage.routeName: (context) => PostPage(),
       },
       navigatorKey: _navigatorKey,
       builder: (context, child) {
-        return BlocListener<AuthenticationBloc, AuthenticationState>(
-          listenWhen: (previous, current) => previous.status != current.status,
-          listener: (context, state) {
-            switch (state.status) {
-              case AuthenticationStatus.authenticated:
-                _navigator.pushNamedAndRemoveUntil(
-                  Home.routeName,
-                  (route) => false,
-                );
-                break;
-              case AuthenticationStatus.unauthenticated:
-                _navigator.pushNamedAndRemoveUntil(
-                  SignIn.routeName,
-                  (route) => false,
-                );
-                break;
-              default:
-                break;
-            }
-          },
+        return MultiBlocListener(
+          listeners: [
+            BlocListener<AuthenticationBloc, AuthenticationState>(
+              listenWhen: (previous, current) =>
+                  previous.status != current.status,
+              listener: (context, state) {
+                switch (state.status) {
+                  case AuthenticationStatus.authenticated:
+                    _navigator.pushNamedAndRemoveUntil(
+                      Home.routeName,
+                      (route) => false,
+                    );
+                    break;
+                  case AuthenticationStatus.unauthenticated:
+                    _navigator.pushNamedAndRemoveUntil(
+                      SignIn.routeName,
+                      (route) => false,
+                    );
+                    break;
+                  default:
+                    break;
+                }
+              },
+            ),
+            BlocListener<SignInBloc, SignInState>(
+              listenWhen: (_, current) => current is CodeSentState,
+              listener: (_, __) =>
+                  _navigator.pushNamed(SignInVerification.routeName),
+            ),
+          ],
           child: child,
         );
       },

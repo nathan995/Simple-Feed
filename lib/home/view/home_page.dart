@@ -1,57 +1,47 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:simple_feed/authentication/bloc/authentication_bloc.dart';
-import 'package:simple_feed/feed/bloc/feed_bloc.dart';
 import 'package:simple_feed/home/bloc/home_bloc.dart';
+import 'package:simple_feed/home/view/post_page.dart';
+
+import 'package:simple_feed/models/post.dart';
 
 class Home extends StatelessWidget {
-  static String routeName = '/home';
+  static String routeName = '/';
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
-      providers: [
-        BlocProvider(
-          create: (context) => HomeBloc(),
-        ),
-        BlocProvider(
-          create: (context) => FeedBloc(),
-        ),
-      ],
-      child: HomePage(),
-    );
-  }
-}
-
-class HomePage extends StatelessWidget {
-  Dio dio = new Dio();
-
-  @override
-  Widget build(BuildContext context) {
-    final String _phone = context.read<AuthenticationBloc>().state.phone;
-
-    void _logOut() {
-      context.read<AuthenticationBloc>().add(UnAuthenticate());
-    }
-
-    void _load() async {
-      final response = await dio
-          .get("https://simple-feed-test.herokuapp.com/v1/posts/?page=1");
-      // print(response.data.toString());
-      // print(response.data['docs'].runtimeType);
-      context.read<HomeBloc>().add(SetNotLoading());
-      context.read<FeedBloc>().add(UpdateFeed(response.data['docs']));
+    final HomeBloc homeBloc = BlocProvider.of<HomeBloc>(context);
+    final AuthenticationBloc authenticationBloc =
+        BlocProvider.of<AuthenticationBloc>(context);
+    Future<void> _load() async {
+      homeBloc.add(HomeLoadingEvent());
     }
 
     _load();
-    return Scaffold(
+    void _logOut() {
+      authenticationBloc.add(UnAuthenticate());
+    }
+
+    return BlocListener<HomeBloc, HomeState>(
+      listenWhen: (previous, current) => current is HomeLikeErrorState,
+      listener: (context, state) {
+        if (state is HomeLikeErrorState) {
+          _scaffoldKey.currentState.showSnackBar(SnackBar(
+            content: Text("${state.message}"),
+            duration: Duration(seconds: 3),
+          ));
+        }
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
         backgroundColor: Theme.of(context).backgroundColor,
         appBar: AppBar(
           centerTitle: true,
           title: Text(
             'Feed',
             style: TextStyle(
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w600,
                 color: Theme.of(context).accentColor),
           ),
           backgroundColor: Theme.of(context).backgroundColor,
@@ -67,81 +57,114 @@ class HomePage extends StatelessWidget {
           ],
         ),
         body: BlocBuilder<HomeBloc, HomeState>(
-          builder: (context, state) {
-            if (state.errorStatus == ErrorStatus.error) {
-              return Container(
-                child: Text('An error occured'),
-              );
-            } else {
-              if (state.loadingStatus == LoadingStatus.loading) {
+            buildWhen: (previous, current) =>
+                current is HomeLoadingState ||
+                current is HomeErrorState ||
+                current is NewFeedState,
+            builder: (context, state) {
+              if (state is HomeErrorState) {
                 return Container(
                   child: Center(
-                    child: CircularProgressIndicator(),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '${state.message}',
+                          style: TextStyle(fontSize: 15.0),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 18.0),
+                          child: FlatButton(
+                            color: Theme.of(context).primaryColor,
+                            textColor: Theme.of(context).backgroundColor,
+                            onPressed: _load,
+                            child: Text('Try again'),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 );
-              } else {
-                return BlocBuilder<FeedBloc, FeedState>(
+              } else if (state is HomeLoadingState) {
+                return Container(
+                  child: Center(
+                    child: SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: CircularProgressIndicator()),
+                  ),
+                );
+              } else if (state is NewFeedState) {
+                return BlocBuilder<HomeBloc, HomeState>(
+                  buildWhen: (current, previous) =>
+                      current.feed != previous.feed,
                   builder: (context, state) {
-                    if (state.feed.isEmpty) {
-                      return Container();
-                    }
-                    return ListView.builder(
-                      itemCount: state.feed.length,
-                      itemBuilder: (context, index) {
-                        final post = state.feed[index];
-                        return Post(
-                          username: post['user']['name'],
-                          name: post['user']['username'],
-                          image: 'assets/images/logo.png',
-                          profileImage: 'assets/images/logo.png',
-                          creationDate: post['created_at'],
-                          likes: post['likes'],
-                          isLiked: post['isLiked'],
-                        );
-                      },
+                    return RefreshIndicator(
+                      child: ListView.builder(
+                        itemCount: state.feed.length,
+                        itemBuilder: (context, index) {
+                          final _post = state.feed[index];
+                          if (index == state.feed.length - 1) {
+                            homeBloc.add(LoadMoreEvent(feed: state.feed));
+                          }
+                          return BuildPost(post: _post, index: index);
+                        },
+                      ),
+                      onRefresh: _load,
                     );
                   },
                 );
               }
-            }
+              return Container();
+            }),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () {
+            Navigator.pushNamed(context, PostPage.routeName);
           },
-        ));
+          backgroundColor: Theme.of(context).primaryColor,
+          child: Icon(
+            Icons.add,
+          ),
+        ),
+      ),
+    );
   }
 }
 
-class Post extends StatelessWidget {
-  final String username;
-  final String name;
-  final String image;
-  final String profileImage;
-  final String creationDate;
-  final int likes;
-  final bool isLiked;
-  Post({
-    @required this.username,
-    @required this.name,
-    @required this.image,
-    @required this.profileImage,
-    @required this.creationDate,
-    @required this.likes,
-    @required this.isLiked,
-  });
+class BuildPost extends StatelessWidget {
+  final Post post;
+  final int index;
+  BuildPost({@required this.post, @required this.index});
   @override
   Widget build(BuildContext context) {
     final double _width = MediaQuery.of(context).size.width;
+    final DateTime _now = DateTime.now();
+    final HomeBloc homeBloc = BlocProvider.of<HomeBloc>(context);
+
+    final _diff = _now.difference(DateTime.parse(post.created));
+    final _date = _diff.inDays > 0
+        ? "${_diff.inDays} days"
+        : _diff.inHours > 0
+            ? "${_diff.inHours} hours"
+            : _diff.inMinutes > 0
+                ? "${_diff.inMinutes} min"
+                : _diff.inSeconds > 0
+                    ? "${_diff.inSeconds} sec"
+                    : 'just now';
     return Column(
       children: [
         SizedBox(
           width: _width,
-          height: _width * 9 / 16,
+          height: _width * 10 / 16,
           child: Image.asset(
-            image,
+            post.image,
             fit: BoxFit.cover,
           ),
         ),
         Container(
           padding: EdgeInsets.all(20),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
@@ -151,7 +174,7 @@ class Post extends StatelessWidget {
                         CircleAvatar(
                           radius: 17,
                           backgroundImage: AssetImage(
-                            profileImage,
+                            post.profileImage,
                           ),
                         ),
                         Padding(
@@ -160,36 +183,41 @@ class Post extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                name,
+                                post.name,
                                 style: TextStyle(fontWeight: FontWeight.bold),
                               ),
-                              RichText(
-                                text: TextSpan(
-                                  style: DefaultTextStyle.of(context).style,
-                                  children: [
-                                    TextSpan(
-                                      text: username,
-                                      style: TextStyle(
-                                        color: isLiked
-                                            ? Theme.of(context).accentColor
-                                            : Theme.of(context).hintColor,
-                                        fontFamily: 'Roboto',
-                                        fontSize: 12.0,
-                                        decoration: TextDecoration.none,
+                              Padding(
+                                padding: EdgeInsets.only(top: 2.0),
+                                child: RichText(
+                                  text: TextSpan(
+                                    style: DefaultTextStyle.of(context).style,
+                                    children: [
+                                      TextSpan(
+                                        text: "@username ",
+                                        style: TextStyle(
+                                          color: post.isLiked
+                                              ? Theme.of(context).accentColor
+                                              : Theme.of(context).hintColor,
+                                          fontFamily: 'Roboto',
+                                          fontSize: 12.0,
+                                          decoration: TextDecoration.none,
+                                        ),
                                       ),
-                                    ),
-                                    TextSpan(
-                                      text: "  $creationDate",
-                                      style: TextStyle(
-                                        fontFamily: 'Roboto',
-                                        fontSize: 12.0,
-                                        color: isLiked
-                                            ? Theme.of(context).accentColor
-                                            : Theme.of(context).hintColor,
-                                        decoration: TextDecoration.none,
+                                      TextSpan(
+                                        text: _date == 'just now'
+                                            ? _date
+                                            : '$_date ago',
+                                        style: TextStyle(
+                                          fontFamily: 'Roboto',
+                                          fontSize: 12.0,
+                                          color: post.isLiked
+                                              ? Theme.of(context).accentColor
+                                              : Theme.of(context).hintColor,
+                                          decoration: TextDecoration.none,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
@@ -202,26 +230,39 @@ class Post extends StatelessWidget {
                     children: [
                       Padding(
                         padding: EdgeInsets.only(right: 5),
-                        child: isLiked
-                            ? Icon(
-                                Icons.favorite,
-                                size: 17,
-                                color: Theme.of(context).primaryColor,
-                              )
-                            : Icon(
-                                Icons.favorite_border,
-                                size: 17,
-                              ),
+                        child: IconButton(
+                          icon: post.isLiked
+                              ? Icon(
+                                  Icons.favorite,
+                                  size: 17,
+                                  color: Theme.of(context).primaryColor,
+                                )
+                              : Icon(
+                                  Icons.favorite_border,
+                                  size: 17,
+                                ),
+                          onPressed: () {
+                            homeBloc.add(LikeEvent(
+                                index: index, feed: homeBloc.state.feed));
+                          },
+                        ),
                       ),
-                      Text("${likes}")
+                      Text(
+                        "${post.likes}",
+                        style: TextStyle(
+                            color: post.isLiked
+                                ? Theme.of(context).primaryColor
+                                : Theme.of(context).accentColor,
+                            fontWeight: FontWeight.w600),
+                      )
                     ],
                   )
                 ],
               ),
               Padding(
-                padding: EdgeInsets.only(top: 10),
+                padding: EdgeInsets.only(top: 15),
                 child: Text(
-                  'In do non non do nisi excepteur dolore voluptate duis excepteur ipsum dolore laborum. ',
+                  '${post.caption}',
                   style: TextStyle(
                     color: Theme.of(context).hintColor,
                   ),

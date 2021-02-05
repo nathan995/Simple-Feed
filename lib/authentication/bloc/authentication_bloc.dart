@@ -16,9 +16,9 @@ class AuthenticationBloc
     AuthenticationEvent event,
   ) async* {
     if (event is UnAuthenticate) {
-      yield StatusState(AuthenticationStatus.unauthenticated);
+      yield AuthenticationStatusState(AuthenticationStatus.unauthenticated);
     } else if (event is Authenticate) {
-      yield StatusState(AuthenticationStatus.authenticated);
+      yield AuthenticationStatusState(AuthenticationStatus.authenticated);
     } else if (event is UpdatePhone) {
       yield PhoneState(event.phone);
     }
